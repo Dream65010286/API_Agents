@@ -1,16 +1,20 @@
 import httpx
+import pytest
 
 
 COORDINATOR_URL = "http://127.0.0.1:8010"
 CUSTOMER_AGENT_URL = "http://127.0.0.1:8011"
 ORDER_AGENT_URL = "http://127.0.0.1:8012"
 
-API_KEY = "partilon-api-key-2026"
 
+# ---------------------------------------------------------------------------
+# Customer Agent
+# ---------------------------------------------------------------------------
 
 def test_customer_agent_discovery():
     response = httpx.get(
-        f"{CUSTOMER_AGENT_URL}/.well-known/agent.json"
+        f"{CUSTOMER_AGENT_URL}/.well-known/agent.json",
+        timeout=5.0,
     )
 
     assert response.status_code == 200
@@ -28,6 +32,7 @@ def test_customer_agent_discovery():
     assert "get_customer" in capabilities
 
 
+@pytest.mark.customer_api_requests(1)
 def test_customer_agent_a2a_get_customer():
     response = httpx.post(
         f"{CUSTOMER_AGENT_URL}/a2a/tasks",
@@ -40,6 +45,7 @@ def test_customer_agent_a2a_get_customer():
             "action": "get_customer",
             "customer_id": "C001",
         },
+        timeout=10.0,
     )
 
     assert response.status_code == 200
@@ -51,6 +57,10 @@ def test_customer_agent_a2a_get_customer():
     assert data["result"]["customer_id"] == "C001"
     assert data["result"]["name"] == "Alice Johnson"
 
+
+# ---------------------------------------------------------------------------
+# Order Agent
+# ---------------------------------------------------------------------------
 
 def test_order_agent_a2a_get_latest_order():
     response = httpx.post(
@@ -64,6 +74,7 @@ def test_order_agent_a2a_get_latest_order():
             "action": "get_latest_order",
             "customer_id": "C001",
         },
+        timeout=10.0,
     )
 
     assert response.status_code == 200
@@ -76,6 +87,11 @@ def test_order_agent_a2a_get_latest_order():
     assert data["result"]["status"] == "DELIVERED"
 
 
+# ---------------------------------------------------------------------------
+# Coordinator E2E
+# ---------------------------------------------------------------------------
+
+@pytest.mark.customer_api_requests(1)
 def test_coordinator_customer_latest_order():
     response = httpx.post(
         f"{COORDINATOR_URL}/agent/query",
@@ -84,8 +100,12 @@ def test_coordinator_customer_latest_order():
             "X-Correlation-ID": "test-e2e-001",
         },
         json={
-            "query": "Find customer C001 and tell me their latest order status."
+            "query": (
+                "Find customer C001 and tell me "
+                "their latest order status."
+            )
         },
+        timeout=10.0,
     )
 
     assert response.status_code == 200
@@ -93,7 +113,9 @@ def test_coordinator_customer_latest_order():
     data = response.json()
 
     assert data["customer_id"] == "C001"
+
     assert data["customer"]["name"] == "Alice Johnson"
+
     assert data["latest_order"]["order_id"] == "O1002"
     assert data["latest_order"]["status"] == "DELIVERED"
 
@@ -101,4 +123,103 @@ def test_coordinator_customer_latest_order():
     assert "get_latest_order" in data["decision"]["selected_tools"]
 
     assert len(data["a2a"]["delegated_tasks"]) == 2
+
     assert data["correlation_id"] == "test-e2e-001"
+
+
+# ---------------------------------------------------------------------------
+# Failure handling: Customer Agent unavailable
+# ---------------------------------------------------------------------------
+
+def test_coordinator_customer_agent_unavailable(stopped_service):
+    with stopped_service("customer-agent"):
+        response = httpx.post(
+            f"{COORDINATOR_URL}/agent/query",
+            headers={
+                "Content-Type": "application/json",
+                "X-Correlation-ID": (
+                    "test-failure-customer-agent-001"
+                ),
+            },
+            json={
+                "query": "Find customer C001"
+            },
+            timeout=10.0,
+        )
+
+        assert response.status_code == 502
+
+        data = response.json()
+
+        assert (
+            data["detail"]["error"]
+            == "CUSTOMER_AGENT_UNAVAILABLE"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Failure handling: Order Agent unavailable
+# ---------------------------------------------------------------------------
+
+# The query also needs the customer, so the Customer Agent calls the
+# rate-limited customer-api route before the Order Agent is contacted.
+@pytest.mark.customer_api_requests(1)
+def test_coordinator_order_agent_unavailable(stopped_service):
+    with stopped_service("order-agent"):
+        response = httpx.post(
+            f"{COORDINATOR_URL}/agent/query",
+            headers={
+                "Content-Type": "application/json",
+                "X-Correlation-ID": (
+                    "test-failure-order-agent-001"
+                ),
+            },
+            json={
+                "query": (
+                    "Find customer C001 and tell me "
+                    "their latest order status."
+                )
+            },
+            timeout=10.0,
+        )
+
+        assert response.status_code == 502
+
+        data = response.json()
+
+        assert (
+            data["detail"]["error"]
+            == "ORDER_AGENT_UNAVAILABLE"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Failure handling: Customer Backend unavailable
+# ---------------------------------------------------------------------------
+
+# The failed request still passes limit-count before APISIX finds no upstream.
+@pytest.mark.customer_api_requests(1)
+def test_coordinator_customer_backend_unavailable(stopped_service):
+    with stopped_service("customer-service"):
+        response = httpx.post(
+            f"{COORDINATOR_URL}/agent/query",
+            headers={
+                "Content-Type": "application/json",
+                "X-Correlation-ID": (
+                    "test-failure-customer-backend-001"
+                ),
+            },
+            json={
+                "query": "Find customer C001"
+            },
+            timeout=10.0,
+        )
+
+        assert response.status_code == 502
+
+        data = response.json()
+
+        assert (
+            data["detail"]["error"]
+            == "CUSTOMER_AGENT_ERROR"
+        )
