@@ -1,0 +1,157 @@
+services:
+
+  customer-db:
+    image: postgres:16-alpine
+    container_name: partilon-customer-db
+    environment:
+      POSTGRES_DB: customer_db
+      POSTGRES_USER: customer_user
+      POSTGRES_PASSWORD: customer_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - customer-db-data:/var/lib/postgresql/data
+      - ./database/customer/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - partilon-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U customer_user -d customer_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  order-db:
+    image: postgres:16-alpine
+    container_name: partilon-order-db
+    environment:
+      POSTGRES_DB: order_db
+      POSTGRES_USER: order_user
+      POSTGRES_PASSWORD: order_password
+    ports:
+      - "5434:5432"
+    volumes:
+      - order-db-data:/var/lib/postgresql/data
+      - ./database/order/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - partilon-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U order_user -d order_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  customer-service:
+    build:
+      context: ./services/customer-service
+    container_name: partilon-customer-service
+    environment:
+      DB_HOST: customer-db
+      DB_PORT: 5432
+      DB_NAME: customer_db
+      DB_USER: customer_user
+      DB_PASSWORD: customer_password
+    ports:
+      - "8001:8000"
+    depends_on:
+      customer-db:
+        condition: service_healthy
+    networks:
+      - partilon-network
+
+  order-service:
+    build:
+      context: ./services/order-service
+    container_name: partilon-order-service
+    environment:
+      DB_HOST: order-db
+      DB_PORT: 5432
+      DB_NAME: order_db
+      DB_USER: order_user
+      DB_PASSWORD: order_password
+    ports:
+      - "8002:8000"
+    depends_on:
+      order-db:
+        condition: service_healthy
+    networks:
+      - partilon-network
+
+  etcd:
+    image: bitnamilegacy/etcd:3.5.11
+    container_name: partilon-etcd
+    environment:
+      ALLOW_NONE_AUTHENTICATION: "yes"
+      ETCD_ADVERTISE_CLIENT_URLS: "http://etcd:2379"
+      ETCD_LISTEN_CLIENT_URLS: "http://0.0.0.0:2379"
+    volumes:
+      - etcd-data:/bitnami/etcd
+    networks:
+      - partilon-network
+
+  apisix:
+    image: apache/apisix:3.17.0-debian
+    container_name: partilon-apisix
+    volumes:
+      - ./gateway/apisix/config/config.yaml:/usr/local/apisix/conf/config.yaml:ro
+    depends_on:
+      - etcd
+      - customer-service
+      - order-service
+    ports:
+      - "9080:9080"
+      - "127.0.0.1:9180:9180"
+    networks:
+      - partilon-network
+
+  coordinator-agent:
+    build:
+      context: ./agents/coordinator
+    container_name: partilon-coordinator-agent
+    environment:
+      APISIX_URL: http://apisix:9080
+      API_KEY: partilon-api-key-2026
+      CUSTOMER_AGENT_URL: http://customer-agent:8000
+      ORDER_AGENT_URL: http://order-agent:8000
+    ports:
+      - "8010:8000"
+    depends_on:
+      - apisix
+    networks:
+      - partilon-network
+
+  customer-agent:
+    build:
+      context: ./agents/customer-agent
+    container_name: partilon-customer-agent
+    environment:
+      APISIX_URL: http://apisix:9080
+      API_KEY: partilon-api-key-2026
+    ports:
+      - "8011:8000"
+    depends_on:
+      - apisix
+    networks:
+      - partilon-network
+
+  order-agent:
+    build:
+      context: ./agents/order-agent
+    container_name: partilon-order-agent
+    environment:
+      APISIX_URL: http://apisix:9080
+      API_KEY: partilon-api-key-2026
+    ports:
+      - "8012:8000"
+    depends_on:
+      - apisix
+    networks:
+      - partilon-network
+
+networks:
+  partilon-network:
+    driver: bridge
+
+volumes:
+  customer-db-data:
+  order-db-data:
+  etcd-data:

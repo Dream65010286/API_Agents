@@ -1,0 +1,29 @@
+apisix:
+  node_listen:
+    - port: 9080
+
+deployment:
+  role: traditional
+
+  role_traditional:
+    config_provider: etcd
+
+  admin:
+    admin_listen:
+      ip: 0.0.0.0
+      port: 9180
+
+    allow_admin:
+      - 127.0.0.0/24
+      - 172.19.0.0/16
+
+    admin_key:
+      - name: admin
+        key: partilon-admin-key-2026
+        role: admin
+
+  etcd:
+    host:
+      - "http://etcd:2379"
+    prefix: /apisix
+    timeout: 30
