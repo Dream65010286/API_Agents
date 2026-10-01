@@ -93,7 +93,9 @@ echo "[provision] applying routes..."
 # a 3-segment path (".../{id}/orders") is matched here, not by the
 # 2-segment customer-api route below -- both share the same uri prefix.
 
-# Nested "customer's orders" lookup -- order-service, not rate limited.
+# Nested "customer's orders" lookup -- order-service, rate limited (50 / 10s).
+# Every route also runs request-id: it generates an X-Correlation-ID when the
+# caller sends none and keeps the caller's value when present.
 apply "/routes/customer-orders-api" '{
   "uri": "/api/customers/*",
   "methods": ["GET"],
@@ -102,8 +104,16 @@ apply "/routes/customer-orders-api" '{
   "upstream_id": "order-service",
   "plugins": {
     "key-auth": {},
+    "request-id": {"header_name": "X-Correlation-ID", "include_in_response": true},
     "proxy-rewrite": {
       "regex_uri": ["^/api/customers/(.+)/orders$", "/customers/$1/orders"]
+    },
+    "limit-count": {
+      "count": 50,
+      "time_window": 10,
+      "key_type": "var",
+      "key": "consumer_name",
+      "rejected_code": 429
     }
   }
 }'
@@ -118,6 +128,7 @@ apply "/routes/customer-api" '{
   "upstream_id": "customer-service",
   "plugins": {
     "key-auth": {},
+    "request-id": {"header_name": "X-Correlation-ID", "include_in_response": true},
     "proxy-rewrite": {
       "regex_uri": ["^/api/customers/(.+)$", "/customers/$1"]
     },
@@ -131,17 +142,32 @@ apply "/routes/customer-api" '{
   }
 }'
 
-# Single-order lookup -- order-service, not rate limited.
+# Single-order lookup -- order-service, rate limited (50 requests / 10 seconds
+# per consumer; order routes get a higher budget than the customer route).
 apply "/routes/order-api" '{
   "uri": "/api/orders/*",
   "methods": ["GET"],
   "upstream_id": "order-service",
   "plugins": {
     "key-auth": {},
+    "request-id": {"header_name": "X-Correlation-ID", "include_in_response": true},
     "proxy-rewrite": {
       "regex_uri": ["^/api/orders/(.+)$", "/orders/$1"]
+    },
+    "limit-count": {
+      "count": 50,
+      "time_window": 10,
+      "key_type": "var",
+      "key": "consumer_name",
+      "rejected_code": 429
     }
   }
+}'
+
+echo "[provision] applying global metrics (Prometheus)..."
+
+apply "/global_rules/metrics" '{
+  "plugins": {"prometheus": {}}
 }'
 
 echo "[provision] done: upstreams, consumer, and routes are provisioned."
