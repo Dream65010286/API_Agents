@@ -46,6 +46,15 @@ def extract_customer_id(query: str) -> str | None:
     return None
 
 
+def extract_order_id(query: str) -> str | None:
+    match = re.search(r"\bO\d{4}\b", query.upper())
+
+    if match:
+        return match.group(0)
+
+    return None
+
+
 async def call_managed_api(
     client: httpx.AsyncClient,
     path: str,
@@ -202,15 +211,120 @@ async def agent_query(
     )
 
     customer_id = extract_customer_id(agent_request.query)
+    order_id = extract_order_id(agent_request.query)
 
-    if customer_id is None:
+    if customer_id is None and order_id is None:
         raise HTTPException(
             status_code=400,
             detail={
                 "error": "CUSTOMER_ID_NOT_FOUND",
-                "message": "Could not identify a customer ID such as C001",
+                "message": (
+                    "Could not identify a customer ID such as C001 "
+                    "or an order ID such as O1001"
+                ),
             },
         )
+
+    # ---------------------------------------------------------------
+    # Order-only lookup (no customer ID in the query): delegate a
+    # single get_order task directly to the Order Agent.
+    # Coordinator -> Order Agent -> A2A -> Order Service -> Order DB.
+    # ---------------------------------------------------------------
+    if customer_id is None:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            order_agent_card, status = await discover_agent(
+                client,
+                ORDER_AGENT_URL,
+                correlation_id,
+            )
+
+            if status != 200 or order_agent_card is None:
+                raise HTTPException(
+                    status_code=502 if status not in (504,) else 504,
+                    detail={
+                        "error": "ORDER_AGENT_UNAVAILABLE",
+                        "message": "Order Agent is unavailable",
+                    },
+                )
+
+            order_task = {
+                "task_id": f"order-{correlation_id}",
+                "action": "get_order",
+                "order_id": order_id,
+            }
+
+            order_result, status = await call_a2a_task(
+                client,
+                ORDER_AGENT_URL,
+                order_task,
+                correlation_id,
+            )
+
+            if status == 404:
+                raise HTTPException(
+                    status_code=404,
+                    detail={
+                        "error": "ORDER_NOT_FOUND",
+                        "message": f"Order {order_id} was not found",
+                    },
+                )
+
+            if status == 429:
+                raise HTTPException(
+                    status_code=429,
+                    detail={
+                        "error": "ORDER_API_RATE_LIMITED",
+                        "message": "Order API rate limit was exceeded",
+                    },
+                )
+
+            if status == 504:
+                raise HTTPException(
+                    status_code=504,
+                    detail={
+                        "error": "ORDER_AGENT_TIMEOUT",
+                        "message": "Order Agent request timed out",
+                    },
+                )
+
+            if order_result is None:
+                raise HTTPException(
+                    status_code=502,
+                    detail={
+                        "error": "ORDER_AGENT_ERROR",
+                        "message": "Order Agent request failed",
+                    },
+                )
+
+            order = order_result["result"]
+
+        logger.info(
+            "agent completed | order_id=%s | tools=%s | delegated_tasks=%s | correlation_id=%s",
+            order_id,
+            ["get_order"],
+            [order_task["task_id"]],
+            correlation_id,
+        )
+
+        return {
+            "agent": "coordinator",
+            "customer_id": None,
+            "order_id": order_id,
+            "decision": {
+                "selected_tools": ["get_order"],
+                "reason": (
+                    "The Coordinator discovered the Order Agent and "
+                    "delegated a get_order task using the A2A protocol."
+                ),
+            },
+            "a2a": {
+                "order_agent": order_agent_card,
+                "delegated_tasks": [order_task["task_id"]],
+            },
+            "customer": None,
+            "order": order,
+            "correlation_id": correlation_id,
+        }
 
     query_lower = agent_request.query.lower()
 

@@ -128,6 +128,84 @@ def test_coordinator_customer_latest_order():
 
 
 # ---------------------------------------------------------------------------
+# Coordinator: order-only lookup (no customer ID in the query)
+#
+# "What is the status of order O1001?" -- Coordinator -> Order Agent ->
+# A2A delegation -> Order Service -> Order DB, with no Customer Agent
+# involved at all.
+# ---------------------------------------------------------------------------
+
+def test_coordinator_order_by_id():
+    response = httpx.post(
+        f"{COORDINATOR_URL}/agent/query",
+        headers={
+            "Content-Type": "application/json",
+            "X-Correlation-ID": "test-order-by-id-001",
+        },
+        json={
+            "query": "What is the status of order O1001?"
+        },
+        timeout=10.0,
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["customer_id"] is None
+    assert data["order_id"] == "O1001"
+
+    assert data["customer"] is None
+    assert data["order"]["order_id"] == "O1001"
+    assert data["order"]["status"] == "SHIPPED"
+
+    assert data["decision"]["selected_tools"] == ["get_order"]
+
+    assert len(data["a2a"]["delegated_tasks"]) == 1
+
+    assert data["correlation_id"] == "test-order-by-id-001"
+
+
+def test_coordinator_order_by_id_unknown_order():
+    response = httpx.post(
+        f"{COORDINATOR_URL}/agent/query",
+        headers={
+            "Content-Type": "application/json",
+        },
+        json={
+            "query": "What is the status of order O9999?"
+        },
+        timeout=10.0,
+    )
+
+    assert response.status_code == 404
+
+    data = response.json()
+
+    assert data["detail"]["error"] == "ORDER_NOT_FOUND"
+    assert "O9999" in data["detail"]["message"]
+
+
+def test_coordinator_no_id_in_query():
+    response = httpx.post(
+        f"{COORDINATOR_URL}/agent/query",
+        headers={
+            "Content-Type": "application/json",
+        },
+        json={
+            "query": "Hello there, how are you?"
+        },
+        timeout=10.0,
+    )
+
+    assert response.status_code == 400
+
+    data = response.json()
+
+    assert data["detail"]["error"] == "CUSTOMER_ID_NOT_FOUND"
+
+
+# ---------------------------------------------------------------------------
 # Failure handling: Customer Agent unavailable
 # ---------------------------------------------------------------------------
 

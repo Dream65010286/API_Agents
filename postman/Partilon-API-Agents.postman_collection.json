@@ -1,0 +1,349 @@
+{
+  "info": {
+    "name": "Partilon API Agents",
+    "_postman_id": "f4a2b5a0-8e3d-4b1a-9c2e-partilon-api-agents",
+    "description": "Backend REST APIs, APISIX API Gateway, and the agentic/A2A layer for the Partilon API Agents prototype. See README.md and docs/ in the repository for the full write-up (including which behavior is implemented vs. assumed/limited). Requires the stack to be running: `docker compose up --build -d` — this now provisions the APISIX routes/upstreams/consumer automatically (see docs/architecture.md), even against a brand-new `etcd` volume.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "gateway_url", "value": "http://localhost:9080" },
+    { "key": "customer_service_url", "value": "http://localhost:8001" },
+    { "key": "order_service_url", "value": "http://localhost:8002" },
+    { "key": "coordinator_url", "value": "http://localhost:8010" },
+    { "key": "customer_agent_url", "value": "http://localhost:8011" },
+    { "key": "order_agent_url", "value": "http://localhost:8012" },
+    { "key": "api_key", "value": "partilon-api-key-2026" },
+    { "key": "customer_id", "value": "C001" },
+    { "key": "unknown_customer_id", "value": "C999" },
+    { "key": "order_id", "value": "O1002" },
+    { "key": "unknown_order_id", "value": "O9999" },
+    { "key": "correlation_id", "value": "postman-demo-001" }
+  ],
+  "item": [
+    {
+      "name": "1. Backend services (direct, no gateway, no auth)",
+      "description": "Hits customer-service/order-service directly on their host-published ports. No API key is required or checked — documented as a known limitation (no auth on the services themselves).",
+      "item": [
+        {
+          "name": "Customer Service - Health",
+          "request": {
+            "method": "GET",
+            "url": "{{customer_service_url}}/health"
+          }
+        },
+        {
+          "name": "Customer Service - Get customer (C001)",
+          "request": {
+            "method": "GET",
+            "url": "{{customer_service_url}}/customers/{{customer_id}}"
+          }
+        },
+        {
+          "name": "Customer Service - Unknown customer (404)",
+          "request": {
+            "method": "GET",
+            "url": "{{customer_service_url}}/customers/{{unknown_customer_id}}"
+          }
+        },
+        {
+          "name": "Order Service - Health",
+          "request": {
+            "method": "GET",
+            "url": "{{order_service_url}}/health"
+          }
+        },
+        {
+          "name": "Order Service - Get order (O1002)",
+          "request": {
+            "method": "GET",
+            "url": "{{order_service_url}}/orders/{{order_id}}"
+          }
+        },
+        {
+          "name": "Order Service - Unknown order (404)",
+          "request": {
+            "method": "GET",
+            "url": "{{order_service_url}}/orders/{{unknown_order_id}}"
+          }
+        },
+        {
+          "name": "Order Service - Customer's orders (C001)",
+          "request": {
+            "method": "GET",
+            "url": "{{order_service_url}}/customers/{{customer_id}}/orders"
+          }
+        },
+        {
+          "name": "Order Service - Customer's orders, none (C999 -> [])",
+          "request": {
+            "method": "GET",
+            "url": "{{order_service_url}}/customers/{{unknown_customer_id}}/orders"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. API Gateway (APISIX, key-auth + rate limit)",
+      "description": "Routes/upstreams/consumer are declared in gateway/apisix/provision/provision.sh and applied automatically by the apisix-provision Compose service on every `docker compose up`. If every request here 404s, check `docker compose logs apisix-provision`; see docs/architecture.md.",
+      "item": [
+        {
+          "name": "Get customer via gateway (authorized)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "apikey", "value": "{{api_key}}" }],
+            "url": "{{gateway_url}}/api/customers/{{customer_id}}"
+          }
+        },
+        {
+          "name": "Get customer via gateway - unauthorized (401)",
+          "request": {
+            "method": "GET",
+            "url": "{{gateway_url}}/api/customers/{{customer_id}}"
+          }
+        },
+        {
+          "name": "Get unknown customer via gateway (404)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "apikey", "value": "{{api_key}}" }],
+            "url": "{{gateway_url}}/api/customers/{{unknown_customer_id}}"
+          }
+        },
+        {
+          "name": "Get order via gateway (authorized, not rate limited)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "apikey", "value": "{{api_key}}" }],
+            "url": "{{gateway_url}}/api/orders/{{order_id}}"
+          }
+        },
+        {
+          "name": "Get customer's orders via gateway",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "apikey", "value": "{{api_key}}" }],
+            "url": "{{gateway_url}}/api/customers/{{customer_id}}/orders"
+          }
+        },
+        {
+          "name": "Rate limit probe (run 6x fast -> 6th is 429)",
+          "description": "The customer route allows 5 requests per 10-second window, shared across every caller using this API key. Send this request 6 times in quick succession (e.g. Postman Runner, 6 iterations, no delay) to see request 6 return 429. See docs/demo.md scenario 8.",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "apikey", "value": "{{api_key}}" }],
+            "url": "{{gateway_url}}/api/customers/{{customer_id}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Agent discovery",
+      "item": [
+        {
+          "name": "Customer Agent - Agent Card",
+          "request": {
+            "method": "GET",
+            "url": "{{customer_agent_url}}/.well-known/agent.json"
+          }
+        },
+        {
+          "name": "Order Agent - Agent Card",
+          "request": {
+            "method": "GET",
+            "url": "{{order_agent_url}}/.well-known/agent.json"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. A2A task delegation (direct, bypassing the coordinator)",
+      "description": "No authentication is required or checked on these endpoints -- a documented limitation (A2A calls are unauthenticated in this implementation).",
+      "item": [
+        {
+          "name": "Customer Agent - get_customer",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Correlation-ID", "value": "{{correlation_id}}" }
+            ],
+            "url": "{{customer_agent_url}}/a2a/tasks",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"task_id\": \"postman-customer-1\",\n  \"action\": \"get_customer\",\n  \"customer_id\": \"{{customer_id}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Order Agent - get_order",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Correlation-ID", "value": "{{correlation_id}}" }
+            ],
+            "url": "{{order_agent_url}}/a2a/tasks",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"task_id\": \"postman-order-1\",\n  \"action\": \"get_order\",\n  \"order_id\": \"{{order_id}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Order Agent - get_latest_order",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Correlation-ID", "value": "{{correlation_id}}" }
+            ],
+            "url": "{{order_agent_url}}/a2a/tasks",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"task_id\": \"postman-order-2\",\n  \"action\": \"get_latest_order\",\n  \"customer_id\": \"{{customer_id}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Customer Agent - unsupported action (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{customer_agent_url}}/a2a/tasks",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"task_id\": \"postman-bad-1\",\n  \"action\": \"delete_customer\",\n  \"customer_id\": \"{{customer_id}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Agentic API (coordinator)",
+      "item": [
+        {
+          "name": "Coordinator - Health",
+          "request": {
+            "method": "GET",
+            "url": "{{coordinator_url}}/health"
+          }
+        },
+        {
+          "name": "Customer + latest order (both agents)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Correlation-ID", "value": "{{correlation_id}}" }
+            ],
+            "url": "{{coordinator_url}}/agent/query",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"Find customer C001 and tell me their latest order status.\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Customer only",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{coordinator_url}}/agent/query",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"Find customer C001\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Order only, by order ID (assessment example scenario)",
+          "description": "The assignment's own A2A example: 'What is the status of order O1001?'. No customer ID is present, so the coordinator delegates get_order directly to order-agent -- customer-agent is never contacted. Coordinator -> Order Agent -> A2A delegation -> Order Service -> Order DB. See tests/test_agents.py::test_coordinator_order_by_id.",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Correlation-ID", "value": "{{correlation_id}}" }
+            ],
+            "url": "{{coordinator_url}}/agent/query",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"What is the status of order O1001?\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Unknown order, by order ID (404 ORDER_NOT_FOUND)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{coordinator_url}}/agent/query",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"What is the status of order O9999?\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Order only, by customer's latest order (no customer lookup)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{coordinator_url}}/agent/query",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"What is the latest order for C001?\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Unknown customer (404)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{coordinator_url}}/agent/query",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"Find customer {{unknown_customer_id}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "No customer or order ID in query (400 CUSTOMER_ID_NOT_FOUND)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{coordinator_url}}/agent/query",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"Tell me about a customer\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "Unsupported request - neither customer nor order (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{coordinator_url}}/agent/query",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"Hello C001, how are you?\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

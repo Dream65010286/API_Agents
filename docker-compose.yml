@@ -103,6 +103,28 @@ services:
     networks:
       - partilon-network
 
+  # One-shot provisioning of the APISIX routes/upstreams/consumer/rate-limit
+  # config that gateway/apisix/config/config.yaml does not declare (that file
+  # only bootstraps the APISIX node itself). Runs on the apisix container's
+  # own network namespace so it reaches the Admin API over 127.0.0.1, which
+  # config.yaml already allows -- no gateway config file was changed to add
+  # this. Idempotent (PUTs to fixed resource IDs), so a second
+  # `docker compose up` without `-v` just re-applies the same config. See
+  # gateway/apisix/provision/provision.sh and docs/architecture.md.
+  apisix-provision:
+    image: curlimages/curl:8.11.1
+    container_name: partilon-apisix-provision
+    network_mode: "service:apisix"
+    environment:
+      ADMIN_KEY: partilon-admin-key-2026
+      API_KEY: partilon-api-key-2026
+    volumes:
+      - ./gateway/apisix/provision:/provision:ro
+    entrypoint: ["sh", "/provision/provision.sh"]
+    depends_on:
+      - apisix
+    restart: "no"
+
   coordinator-agent:
     build:
       context: ./agents/coordinator

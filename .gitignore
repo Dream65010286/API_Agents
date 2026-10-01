@@ -5,3 +5,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+
+# Confidential assessment brief - must never be committed/shared (see its
+# own cover page). Keep the working copy outside this repo instead.
+Partilon_Technical01_API_Agentic_202609.pdf
