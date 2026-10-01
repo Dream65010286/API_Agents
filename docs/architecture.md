@@ -59,7 +59,7 @@ flowchart TB
     client -->|"{query: text}"| coordinator
 
     apisix -->|"proxy, apikey required,\nrate limited"| customersvc
-    apisix -->|"proxy, apikey required,\nnot rate limited"| ordersvc
+    apisix -->|"proxy, apikey required,\nrate limited (50/10s)"| ordersvc
 
     coordinator -->|"1. discover\n2. POST /a2a/tasks"| customeragent
     coordinator -->|"1. discover\n2. POST /a2a/tasks"| orderagent

@@ -2,6 +2,8 @@ from fastapi import FastAPI, HTTPException
 import logging
 import os
 import psycopg
+import re
+import uuid
 
 
 app = FastAPI(
@@ -20,7 +22,7 @@ logger = logging.getLogger("customer-service")
 
 @app.middleware("http")
 async def correlation_logging(request, call_next):
-    correlation_id = request.headers.get("X-Correlation-ID", "missing")
+    correlation_id = request.headers.get("X-Correlation-ID") or uuid.uuid4().hex
 
     response = await call_next(request)
 
@@ -35,6 +37,20 @@ async def correlation_logging(request, call_next):
     response.headers["X-Correlation-ID"] = correlation_id
 
     return response
+
+CUSTOMER_ID_PATTERN = re.compile(r"^C\d{3}$")
+
+
+def require_valid_customer_id(customer_id: str):
+    if not CUSTOMER_ID_PATTERN.match(customer_id):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "INVALID_CUSTOMER_ID",
+                "message": "Customer ID must look like C001",
+            },
+        )
+
 
 def get_connection():
     return psycopg.connect(
@@ -53,6 +69,7 @@ def health():
 
 @app.get("/customers/{customer_id}")
 def get_customer(customer_id: str):
+    require_valid_customer_id(customer_id)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(

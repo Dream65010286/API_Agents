@@ -26,9 +26,10 @@ gateway-configuration error.
 
 ## customer-service (direct: `http://localhost:8001`)
 
-No authentication. Not rate limited. Every response carries
-`X-Correlation-ID` (echoing the request header, or the literal string
-`"missing"` if the request didn't send one).
+No authentication. Not rate limited (the gateway route is). Every response
+carries `X-Correlation-ID` (echoing the request header, or a generated UUID
+if the request didn't send one). `customer_id` must match `C###`; otherwise
+`400 INVALID_CUSTOMER_ID`.
 
 ### `GET /health`
 
@@ -52,10 +53,9 @@ No authentication. Not rate limited. Every response carries
 
 ## order-service (direct: `http://localhost:8002`)
 
-No authentication. Not rate limited. Same `X-Correlation-ID` echo
-behavior as `customer-service` (note: `order-service`'s middleware is
-registered twice in code, so each request is logged twice server-side —
-harmless, see [README → Known limitations](../README.md#known-limitations)).
+No authentication. Not rate limited (the gateway routes are). Same
+`X-Correlation-ID` echo/UUID behavior as `customer-service`. IDs must match
+`O####` / `C###`, otherwise `400 INVALID_ORDER_ID` / `INVALID_CUSTOMER_ID`.
 
 ### `GET /health`
 

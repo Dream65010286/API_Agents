@@ -2,6 +2,8 @@ from fastapi import FastAPI, HTTPException
 import logging
 import os
 import psycopg
+import re
+import uuid
 
 app = FastAPI(
     title="Partilon Order Service",
@@ -19,7 +21,7 @@ logger = logging.getLogger("order-service")
 
 @app.middleware("http")
 async def correlation_logging(request, call_next):
-    correlation_id = request.headers.get("X-Correlation-ID", "missing")
+    correlation_id = request.headers.get("X-Correlation-ID") or uuid.uuid4().hex
 
     response = await call_next(request)
 
@@ -35,23 +37,21 @@ async def correlation_logging(request, call_next):
 
     return response
 
-@app.middleware("http")
-async def correlation_logging(request, call_next):
-    correlation_id = request.headers.get("X-Correlation-ID", "missing")
 
-    response = await call_next(request)
+ORDER_ID_PATTERN = re.compile(r"^O\d{4}$")
+CUSTOMER_ID_PATTERN = re.compile(r"^C\d{3}$")
 
-    logger.info(
-        "request completed | correlation_id=%s | method=%s | path=%s | status=%s",
-        correlation_id,
-        request.method,
-        request.url.path,
-        response.status_code,
-    )
 
-    response.headers["X-Correlation-ID"] = correlation_id
+def require_valid_id(pattern, value, error, example):
+    if not pattern.match(value):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": error,
+                "message": f"ID must look like {example}",
+            },
+        )
 
-    return response
 
 def get_connection():
     return psycopg.connect(
@@ -70,6 +70,7 @@ def health():
 
 @app.get("/orders/{order_id}")
 def get_order(order_id: str):
+    require_valid_id(ORDER_ID_PATTERN, order_id, "INVALID_ORDER_ID", "O1001")
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -102,6 +103,7 @@ def get_order(order_id: str):
 
 @app.get("/customers/{customer_id}/orders")
 def get_customer_orders(customer_id: str):
+    require_valid_id(CUSTOMER_ID_PATTERN, customer_id, "INVALID_CUSTOMER_ID", "C001")
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(

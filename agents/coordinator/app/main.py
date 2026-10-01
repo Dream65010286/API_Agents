@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 import httpx
 import os
+import uuid
 import re
 import logging
 
@@ -199,10 +200,7 @@ async def agent_query(
     request: Request,
     agent_request: AgentRequest,
 ):
-    correlation_id = request.headers.get(
-        "X-Correlation-ID",
-        "agent-generated",
-    )
+    correlation_id = (request.headers.get("X-Correlation-ID") or uuid.uuid4().hex)
 
     logger.info(
         "agent request | query=%s | correlation_id=%s",

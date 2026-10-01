@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 import httpx
 import os
+import uuid
 import logging
 
 logging.basicConfig(
@@ -52,10 +53,7 @@ async def execute_task(
     task: A2ATask,
     request: Request,
 ):
-    correlation_id = request.headers.get(
-        "X-Correlation-ID",
-        "a2a-generated",
-    )
+    correlation_id = (request.headers.get("X-Correlation-ID") or uuid.uuid4().hex)
 
     logger.info(
         "A2A task received | task_id=%s | action=%s | customer_id=%s | correlation_id=%s",

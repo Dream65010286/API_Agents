@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: customer_user
       POSTGRES_PASSWORD: customer_password
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - customer-db-data:/var/lib/postgresql/data
       - ./database/customer/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -28,7 +28,7 @@ services:
       POSTGRES_USER: order_user
       POSTGRES_PASSWORD: order_password
     ports:
-      - "5434:5432"
+      - "127.0.0.1:5434:5432"
     volumes:
       - order-db-data:/var/lib/postgresql/data
       - ./database/order/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -51,7 +51,7 @@ services:
       DB_USER: customer_user
       DB_PASSWORD: customer_password
     ports:
-      - "8001:8000"
+      - "127.0.0.1:8001:8000"
     depends_on:
       customer-db:
         condition: service_healthy
@@ -69,7 +69,7 @@ services:
       DB_USER: order_user
       DB_PASSWORD: order_password
     ports:
-      - "8002:8000"
+      - "127.0.0.1:8002:8000"
     depends_on:
       order-db:
         condition: service_healthy
@@ -149,7 +149,7 @@ services:
       APISIX_URL: http://apisix:9080
       API_KEY: partilon-api-key-2026
     ports:
-      - "8011:8000"
+      - "127.0.0.1:8011:8000"
     depends_on:
       - apisix
     networks:
@@ -163,7 +163,7 @@ services:
       APISIX_URL: http://apisix:9080
       API_KEY: partilon-api-key-2026
     ports:
-      - "8012:8000"
+      - "127.0.0.1:8012:8000"
     depends_on:
       - apisix
     networks:
