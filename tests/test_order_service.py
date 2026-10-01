@@ -53,3 +53,17 @@ def test_get_customer_orders_without_orders():
 
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_invalid_order_id_is_rejected_with_400():
+    response = httpx.get(f"{BASE_URL}/orders/not-an-order")
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "INVALID_ORDER_ID"
+
+
+def test_invalid_customer_id_for_orders_is_rejected_with_400():
+    response = httpx.get(f"{BASE_URL}/customers/xyz/orders")
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "INVALID_CUSTOMER_ID"

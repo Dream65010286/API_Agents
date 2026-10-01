@@ -32,3 +32,17 @@ def test_get_unknown_customer():
 
     assert data["detail"]["error"] == "CUSTOMER_NOT_FOUND"
     assert "C999" in data["detail"]["message"]
+
+
+def test_invalid_customer_id_is_rejected_with_400():
+    response = httpx.get(f"{BASE_URL}/customers/abc")
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "INVALID_CUSTOMER_ID"
+
+
+def test_service_generates_correlation_id_when_missing():
+    response = httpx.get(f"{BASE_URL}/customers/C001")
+
+    assert response.headers["X-Correlation-ID"] != "missing"
+    assert len(response.headers["X-Correlation-ID"]) >= 16
